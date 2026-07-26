@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-whatsapp-advanced",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Advanced WhatsApp Business node for n8n: template-aware variable fields, Cloud API and Marketing Messages API endpoint routing, and full Meta error-code handling with delivery-status parsing.",
   "keywords": [
     "n8n-community-node-package",
