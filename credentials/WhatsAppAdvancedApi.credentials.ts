@@ -29,8 +29,9 @@ export class WhatsAppAdvancedApi implements ICredentialType {
 			type: 'string',
 			default: '',
 			required: true,
+			placeholder: '102290129340398',
 			description:
-				'WhatsApp Business Account (WABA) ID. Find it in WhatsApp Manager under account settings, or in your Meta app under WhatsApp → API Setup.',
+				'WhatsApp Business Account (WABA) ID — <b>not</b> the Phone Number ID. Both are long numbers listed on the same Meta app → WhatsApp → API Setup page, and mixing them up produces “(#133010) Account not registered”. It is also in WhatsApp Manager under account settings.',
 		},
 		{
 			displayName: 'Graph API Version',

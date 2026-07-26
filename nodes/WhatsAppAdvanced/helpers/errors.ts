@@ -349,7 +349,8 @@ const GUIDANCE: Record<number, string> = {
 	132016: 'The template was disabled for quality reasons and cannot be sent.',
 	132018: 'The template is flagged as high risk and is blocked from sending.',
 	133004: 'The service is temporarily unavailable. Retry.',
-	133010: 'The phone number is not registered on the WhatsApp Business Platform.',
+	133010:
+		'The phone number has not completed Cloud API registration. Either the Business Account ID in the credential is actually a Phone Number ID — they are different values on the same API Setup page — or the sending number still needs POST /{PHONE_NUMBER_ID}/register with messaging_product "whatsapp" and a 6-digit PIN. The dashboard test number is pre-registered; your own number is not.',
 	133016: 'The number was recently deleted and re-registered, so sending is briefly restricted. Retry later.',
 	134011: 'The template is missing required components for this send. Re-read the template and refill the variables.',
 	134100: 'This template is not eligible for the Marketing Messages API. Send it through the Cloud API.',
