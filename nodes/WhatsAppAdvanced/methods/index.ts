@@ -70,16 +70,39 @@ export const listSearch = {
 };
 
 export const loadOptions = {
+	/**
+	 * A number can sit in a business account looking perfectly configured and
+	 * still reject every send with "(#133010) Account not registered", because it
+	 * was never registered against the Cloud API. The WABA-level credential test
+	 * passes regardless — it never touches a number. So the registration state
+	 * goes in the label, where it is visible before a send rather than after.
+	 */
 	async getPhoneNumbers(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
 		const numbers = await fetchPhoneNumbers.call(this, await wabaId.call(this));
 
-		return numbers.map((number) => ({
-			name: `${number.verified_name ?? 'Unnamed'} ${number.display_phone_number ?? ''}`.trim(),
-			value: number.id,
-			description: number.quality_rating
-				? `Quality rating: ${number.quality_rating}`
-				: undefined,
-		}));
+		return numbers.map((number) => {
+			const label = `${number.verified_name ?? 'Unnamed'} ${
+				number.display_phone_number ?? ''
+			}`.trim();
+
+			const registered =
+				number.platform_type === undefined || number.platform_type === 'CLOUD_API';
+
+			const notes: string[] = [];
+			if (!registered) {
+				notes.push(
+					`Not registered on the Cloud API (platform_type: ${number.platform_type}) — sending will fail with (#133010). Run POST /${number.id}/register.`,
+				);
+			}
+			if (number.status && number.status !== 'CONNECTED') notes.push(`Status: ${number.status}`);
+			if (number.quality_rating) notes.push(`Quality rating: ${number.quality_rating}`);
+
+			return {
+				name: registered ? label : `⚠️ ${label} — not registered`,
+				value: number.id,
+				description: notes.length > 0 ? notes.join(' · ') : undefined,
+			};
+		});
 	},
 };
 

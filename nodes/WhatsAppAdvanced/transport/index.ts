@@ -30,7 +30,14 @@ export const DEFAULT_GRAPH_VERSION = 'v23.0';
 export const TEMPLATE_FIELDS =
 	'id,name,language,status,category,sub_category,parameter_format,components,message_send_ttl_seconds,quality_score';
 
-export const PHONE_NUMBER_FIELDS = 'id,display_phone_number,verified_name,quality_rating';
+/**
+ * `platform_type` and `status` are what separate a number that can send from one
+ * that only looks configured. A number sitting in a WABA without Cloud API
+ * registration answers every send with "(#133010) Account not registered", and
+ * nothing in the WABA-level credential test hints at it.
+ */
+export const PHONE_NUMBER_FIELDS =
+	'id,display_phone_number,verified_name,quality_rating,platform_type,code_verification_status,status';
 
 const TEMPLATE_PAGE_SIZE = 200;
 const MAX_PAGES = 10;

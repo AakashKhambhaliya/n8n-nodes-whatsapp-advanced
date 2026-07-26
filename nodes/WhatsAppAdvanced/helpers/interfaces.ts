@@ -143,6 +143,10 @@ export interface WaPhoneNumber {
 	display_phone_number?: string;
 	verified_name?: string;
 	quality_rating?: string;
+	/** `CLOUD_API` is the only value this node can send from. */
+	platform_type?: 'CLOUD_API' | 'ON_PREMISE' | 'NOT_APPLICABLE' | string;
+	code_verification_status?: 'VERIFIED' | 'NOT_VERIFIED' | 'EXPIRED' | string;
+	status?: string;
 	[key: string]: unknown;
 }
 

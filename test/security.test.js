@@ -283,6 +283,48 @@ test('rotating the access token drops the old cache entries', async () => {
 	invalidateTemplateCache();
 });
 
+test('an unregistered sender number is flagged in the dropdown, not left to fail at send', async () => {
+	const { loadOptions } = require('../dist/nodes/WhatsAppAdvanced/methods');
+	invalidateTemplateCache();
+
+	const context = {
+		getCredentials: async () => ({
+			accessToken: 'tok',
+			businessAccountId: '102290129340398',
+			graphApiVersion: 'v23.0',
+		}),
+		helpers: {
+			httpRequestWithAuthentication: async () => ({
+				data: [
+					{
+						id: '1',
+						verified_name: 'Ready Co',
+						display_phone_number: '+1 415 555 0001',
+						platform_type: 'CLOUD_API',
+						status: 'CONNECTED',
+						quality_rating: 'GREEN',
+					},
+					{
+						id: '2',
+						verified_name: 'Unregistered Co',
+						display_phone_number: '+1 415 555 0002',
+						platform_type: 'NOT_APPLICABLE',
+					},
+				],
+			}),
+		},
+	};
+
+	const options = await loadOptions.getPhoneNumbers.call(context);
+
+	assert.strictEqual(options[0].name, 'Ready Co +1 415 555 0001');
+	assert.ok(!options[0].name.includes('⚠️'));
+
+	assert.ok(options[1].name.includes('not registered'), options[1].name);
+	assert.ok(options[1].description.includes('133010'), options[1].description);
+	assert.ok(options[1].description.includes('/2/register'), options[1].description);
+});
+
 test('surrounding whitespace is trimmed rather than rejected', () => {
 	// A copy-pasted ID picking up a trailing space is a typo, not an attack, and
 	// the trimmed value is what reaches the URL.
