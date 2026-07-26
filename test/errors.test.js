@@ -225,6 +225,22 @@ test('trap 3: 100 only reroutes when the request went to /marketing_messages', (
 	assert.strictEqual(shouldFallbackToCloudApi(parsed, 'messages'), false);
 });
 
+test('trap 5: 133010 means different things on the two endpoints', () => {
+	// On Cloud API: the number never completed registration. On the MM API: the
+	// business is not onboarded to MM Lite, and Cloud API will take the message.
+	// Reported by a user whose credential worked with the official n8n node,
+	// which only ever calls /messages.
+	const parsed = parseWaError(httpError(133010, 'Account not registered'));
+
+	assert.strictEqual(classifyWaError(parsed), 'fix_required');
+	assert.strictEqual(shouldFallbackToCloudApi(parsed, 'marketing_messages'), true);
+	assert.strictEqual(shouldFallbackToCloudApi(parsed, 'messages'), false);
+	assert.strictEqual(shouldFallbackToMarketingApi(parsed, 'messages'), false);
+
+	const guidance = explainWaError(parsed);
+	assert.ok(guidance.includes('register'), guidance);
+});
+
 test('trap 4: fallback runs the other direction too', () => {
 	const parsed = parseWaError(httpError(131063, 'marketing disabled on cloud api'));
 

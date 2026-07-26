@@ -76,6 +76,20 @@ export const DEFERRED_CODES = new Map<number, { waitMs: number; metaStated: bool
 /** The Marketing Messages API will not take this message — Cloud API might. */
 const MM_FALLBACK_CODES = new Set([100, 131009, 131055, 134100, 134101, 134102]);
 
+/**
+ * Codes whose meaning flips with the endpoint, and which mean "this account is
+ * not set up for the Marketing Messages API" when that is where the request
+ * went.
+ *
+ * `133010` reads as "the phone number never completed Cloud API registration"
+ * on `/messages` — a genuine fix-required — but as "the business is not
+ * onboarded to MM Lite" on `/marketing_messages`, which the Cloud API will
+ * happily accept instead. Classification keeps the first meaning, because that
+ * is the one a user needs explained; only the fallback check knows about the
+ * second.
+ */
+const MM_ONBOARDING_CODES = new Set([133010]);
+
 /** Marketing templates are disabled on Cloud API. Meta's stated fix is the MM API. */
 const CLOUD_MARKETING_DISABLED_CODE = 131063;
 
@@ -294,6 +308,13 @@ export function isMetaStatedWait(error: WaError): boolean {
 export function shouldFallbackToCloudApi(error: WaError, sentTo: string): boolean {
 	if (sentTo !== 'marketing_messages') return false;
 	if (error.code === undefined) return false;
+
+	// Checked ahead of the do-not-retry guard on purpose. These codes classify as
+	// fix-required — which is right for Cloud API — but reaching them here means
+	// the request went to the MM API, where they mean "not onboarded" and the
+	// Cloud API is the answer.
+	if (MM_ONBOARDING_CODES.has(error.code)) return true;
+
 	if (DO_NOT_RETRY_CODES.has(error.code)) return false;
 	return MM_FALLBACK_CODES.has(error.code);
 }
@@ -350,7 +371,7 @@ const GUIDANCE: Record<number, string> = {
 	132018: 'The template is flagged as high risk and is blocked from sending.',
 	133004: 'The service is temporarily unavailable. Retry.',
 	133010:
-		'The phone number has not completed Cloud API registration. Either the Business Account ID in the credential is actually a Phone Number ID — they are different values on the same API Setup page — or the sending number still needs POST /{PHONE_NUMBER_ID}/register with messaging_product "whatsapp" and a 6-digit PIN. The dashboard test number is pre-registered; your own number is not.',
+		'On the Marketing Messages API this means the business is not onboarded to it — the node falls back to the Cloud API automatically. On the Cloud API it means the sending number never completed registration: run POST /{PHONE_NUMBER_ID}/register with messaging_product "whatsapp" and a 6-digit PIN. Check too that the credential holds the Business Account ID and not a Phone Number ID; they are different values on the same API Setup page.',
 	133016: 'The number was recently deleted and re-registered, so sending is briefly restricted. Retry later.',
 	134011: 'The template is missing required components for this send. Re-read the template and refill the variables.',
 	134100: 'This template is not eligible for the Marketing Messages API. Send it through the Cloud API.',

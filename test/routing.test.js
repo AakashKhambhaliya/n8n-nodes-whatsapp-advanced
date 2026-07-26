@@ -312,6 +312,45 @@ test('134101 falls back to the Cloud API and drops the MM-only fields', async ()
 	assert.strictEqual(items[0].status, 'accepted');
 });
 
+test('133010 on the MM API falls back instead of failing the send', async () => {
+	// An account that is not onboarded to MM Lite answers /marketing_messages
+	// with "Account not registered". The same credential sends fine on Cloud API,
+	// which is why this looked like a broken node next to the official one.
+	const { items, calls } = await run({
+		templates: [F.namedWithCouponAndOffer],
+		params: marketingParams(),
+		send: (endpoint) => {
+			if (endpoint === 'marketing_messages') {
+				throw graphFailure(133010, 'Account not registered');
+			}
+			return ACCEPTED;
+		},
+	});
+
+	const sends = sendCalls(calls);
+	assert.strictEqual(sends.length, 2);
+	assert.ok(sends[0].url.endsWith('/marketing_messages'));
+	assert.ok(sends[1].url.endsWith('/messages'));
+
+	assert.strictEqual(items[0].status, 'accepted');
+	assert.strictEqual(items[0]._routedVia, 'messages');
+	assert.strictEqual(items[0]._fallbackCode, 133010);
+});
+
+test('133010 on the Cloud API is still a real registration failure', async () => {
+	// Nothing to reroute to — the number genuinely is not registered.
+	await assert.rejects(
+		run({
+			templates: [F.namedWithCouponAndOffer],
+			params: marketingParams({ messagingEndpoint: 'messages' }),
+			send: () => {
+				throw graphFailure(133010, 'Account not registered');
+			},
+		}),
+		/133010/,
+	);
+});
+
 test('131063 falls back the other direction, onto the MM API', async () => {
 	const { items, calls } = await run({
 		templates: [F.namedWithCouponAndOffer],
