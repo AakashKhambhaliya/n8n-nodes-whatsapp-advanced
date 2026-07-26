@@ -5,6 +5,21 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.0.4] — 2026-07-26
+
+### Changed
+
+- Replaced node and credential icon with updated WhatsApp SVG in all locations (source, dist, credentials).
+
+## [1.0.3] — 2026-07-26
+
+### Fixed
+
+- Added WhatsApp icon to the credential class so n8n displays the correct logo instead of a
+  generic default.
+
+## [1.0.2] — 2026-07-26
+
 ### Security
 
 - The template cache is now namespaced per credential. It is module-level and therefore shared by

@@ -12,6 +12,11 @@ export class WhatsAppAdvancedApi implements ICredentialType {
 
 	documentationUrl = 'https://developers.facebook.com/docs/whatsapp/cloud-api/get-started';
 
+	icon = {
+		light: 'file:whatsapp.svg',
+		dark: 'file:whatsapp.svg',
+	} as const;
+
 	properties: INodeProperties[] = [
 		{
 			displayName: 'Access Token',
