@@ -3,6 +3,43 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- The template cache is now namespaced per credential. It is module-level and therefore shared by
+  every workflow in an n8n process; keyed on the business account ID alone, a second tenant who knew
+  a WABA ID was served the first tenant's cached templates without their own token being checked.
+  The key now includes a truncated SHA-256 of the access token, so rotating a token also drops the
+  old entries.
+- `toNodeError` rebuilds Meta's envelope from parsed fields instead of forwarding the original
+  error, which carries the request context including the `Authorization` header. Defence in depth:
+  the current `n8n-workflow` discards it, but the peer range is `*`.
+- Graph API identifiers — business account ID, phone number ID, version string — are validated
+  against `[A-Za-z0-9._-]+`. A `?`, `#` or `/` could not change the request host, but could silently
+  move the request elsewhere on `graph.facebook.com`.
+- Carousel and header accumulators use null-prototype objects, and the preview escapes placeholder
+  keys before compiling them into a regex.
+- Added `SECURITY.md` documenting the trust boundaries that are not code-fixable: `Parse Webhook`
+  does not verify Meta's `X-Hub-Signature-256` (the WhatsApp Trigger does), and `usableAsTool`
+  exposes send capability to AI agents.
+
+### Fixed
+
+- Auto-map produced no values. n8n leaves the resource mapper's `value` null in `autoMapInputData`
+  mode and expects the node to resolve the incoming item; every send failed validation instead.
+  Fields now match on both the full field ID and the variable's own name.
+- `continueOnFail` emitted no error code, class or guidance, because `NodeApiError` discards the
+  envelope it is constructed with.
+- Array- and object-typed mapper fields were stringified, turning an MPM product list into
+  `"[object Object]"`.
+- A fallback that itself failed escaped the classifier instead of being re-classified, and a reroute
+  that could not run discarded the message even when Meta documents a wait for that code.
+- A template missing from the business account was sent anyway, surfacing Meta's `(#132001)`.
+- `Delivery Status` required a credential it never uses.
+- Preview substitution missed placeholders written as `{{ 1 }}` and corrupted example values
+  containing `$&`.
+
 ## [1.0.0] — 2026-07-26
 
 Initial release.

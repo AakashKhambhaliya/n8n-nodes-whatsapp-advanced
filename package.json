@@ -43,7 +43,7 @@
     "format": "prettier nodes credentials --write",
     "lint": "eslint nodes credentials package.json",
     "lintfix": "eslint nodes credentials package.json --fix",
-    "test": "npm run build && node test/templates.test.js && node test/errors.test.js && node test/webhook.test.js && node test/routing.test.js",
+    "test": "npm run build && node test/templates.test.js && node test/errors.test.js && node test/webhook.test.js && node test/routing.test.js && node test/security.test.js",
     "prepublishOnly": "npm run build && npm run lint && npm test"
   },
   "n8n": {

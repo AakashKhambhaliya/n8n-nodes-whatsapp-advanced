@@ -201,8 +201,11 @@ interface Bucket {
 
 const newBucket = (): Bucket => ({
 	headerText: [],
-	headerLocation: {},
-	headerProduct: {},
+	// Null-prototype: these are keyed by a segment of a field ID, and a workflow
+	// file is editable JSON. A key of `__proto__` cannot reach Object.prototype
+	// through an object that has none.
+	headerLocation: Object.create(null) as Record<string, string>,
+	headerProduct: Object.create(null) as Record<string, string>,
 	bodyText: [],
 	buttons: new Map(),
 });

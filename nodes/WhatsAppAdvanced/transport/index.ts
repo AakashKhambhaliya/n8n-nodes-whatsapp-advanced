@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import type {
 	IDataObject,
 	IExecuteFunctions,
@@ -37,13 +39,41 @@ const MAX_CACHE_ENTRIES = 50;
 
 type RequestContext = IExecuteFunctions | ILoadOptionsFunctions;
 
+/**
+ * Graph API identifiers — WABA IDs, phone number IDs, version strings — are the
+ * only parts of a request URL this node interpolates.
+ *
+ * The host cannot be changed through them: the authority is fixed before any of
+ * this is appended, so injected text lands in the path. What it *can* do is
+ * silently move the request somewhere else on graph.facebook.com — a `?` or `#`
+ * truncates the path, a `/` adds a segment — and the answer comes back as an
+ * opaque Meta error about a resource nobody meant to call. Rejecting the input
+ * names the real problem instead.
+ */
+const GRAPH_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+
+function graphSegment(value: unknown, label: string): string {
+	const segment = String(value ?? '').trim();
+
+	if (!GRAPH_SEGMENT_RE.test(segment)) {
+		throw new Error(
+			`${label} must be a plain Graph API identifier (letters, digits, dot, dash, underscore), but got “${segment}”`,
+		);
+	}
+
+	return segment;
+}
+
 export function sendUrl(phoneNumberId: string, endpoint: SendEndpoint): string {
-	return `/${phoneNumberId}/${endpoint}`;
+	return `/${graphSegment(phoneNumberId, 'Sender phone number ID')}/${endpoint}`;
 }
 
 async function graphBaseUrl(this: RequestContext): Promise<string> {
 	const credentials = await this.getCredentials(CREDENTIALS_TYPE);
-	const version = ((credentials.graphApiVersion as string) || DEFAULT_GRAPH_VERSION).trim();
+	const version = graphSegment(
+		((credentials.graphApiVersion as string) || DEFAULT_GRAPH_VERSION).trim(),
+		'Graph API version',
+	);
 	return `https://graph.facebook.com/${version}`;
 }
 
@@ -129,8 +159,29 @@ export function invalidateTemplateCache(wabaId?: string): void {
 		return;
 	}
 	for (const key of Array.from(templateCache.keys())) {
-		if (key.startsWith(`${wabaId}:`)) templateCache.delete(key);
+		if (key.includes(`:${wabaId}:`)) templateCache.delete(key);
 	}
+}
+
+/**
+ * A short, irreversible fingerprint of the credential in use.
+ *
+ * The cache lives at module scope, which means it is shared by every workflow
+ * and every user in one n8n process. Keyed on the business account ID alone, a
+ * second tenant who merely *knows* a WABA ID would be served the first tenant's
+ * cached templates — names, body copy, example values — without their own token
+ * ever being checked. The fingerprint puts each credential in its own namespace.
+ *
+ * SHA-256, truncated, never logged and never sent anywhere. Rotating the token
+ * changes the fingerprint, which correctly drops the old entries.
+ */
+async function credentialFingerprint(this: RequestContext): Promise<string> {
+	const credentials = await this.getCredentials(CREDENTIALS_TYPE);
+
+	return createHash('sha256')
+		.update(String(credentials.accessToken ?? ''))
+		.digest('hex')
+		.slice(0, 16);
 }
 
 export async function fetchTemplates(
@@ -138,7 +189,9 @@ export async function fetchTemplates(
 	wabaId: string,
 	nameFilter?: string,
 ): Promise<WaTemplate[]> {
-	const cacheKey = `${wabaId}:${nameFilter ?? '*'}`;
+	const account = graphSegment(wabaId, 'Business account ID');
+
+	const cacheKey = `${await credentialFingerprint.call(this)}:${account}:${nameFilter ?? '*'}`;
 	const cached = templateCache.get(cacheKey);
 	if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.templates;
 
@@ -153,7 +206,7 @@ export async function fetchTemplates(
 		const response = (await waApiRequest.call(
 			this,
 			'GET',
-			`/${wabaId}/message_templates`,
+			`/${account}/message_templates`,
 			undefined,
 			qs,
 		)) as WaTemplateListResponse;
@@ -193,7 +246,9 @@ export async function fetchPhoneNumbers(
 	this: RequestContext,
 	wabaId: string,
 ): Promise<WaPhoneNumber[]> {
-	const response = (await waApiRequest.call(this, 'GET', `/${wabaId}/phone_numbers`, undefined, {
+	const account = graphSegment(wabaId, 'Business account ID');
+
+	const response = (await waApiRequest.call(this, 'GET', `/${account}/phone_numbers`, undefined, {
 		fields: PHONE_NUMBER_FIELDS,
 		limit: 100,
 	})) as WaPhoneNumberListResponse;

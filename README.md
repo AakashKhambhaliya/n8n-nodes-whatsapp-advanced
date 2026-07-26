@@ -139,7 +139,8 @@ npm run build && node test/templates.test.js
 ## Notes
 
 - Keep using the built-in **WhatsApp Trigger** for inbound messages — the webhook format is the
-  same for both endpoints.
+  same for both endpoints. It also verifies Meta's signature, which `Parse Webhook` cannot do on
+  its own; see [SECURITY.md](./SECURITY.md).
 - The MM API requires accepting Meta's Marketing Messages Terms of Service at the business
   portfolio level. Until that is done, `Auto` mode plus the fallback keeps sends working.
 
@@ -153,6 +154,7 @@ npm run build && node test/templates.test.js
 | `BUILD-PLAN.md` | Phase-by-phase implementation plan (for contributors and AI agents) |
 | `CLAUDE.md` | Auto-loaded context for Claude Code |
 | `CHANGELOG.md` | Release notes |
+| `SECURITY.md` | Trust boundaries, credential handling, reporting a vulnerability |
 | `PUBLISHING.md` | Release checklist, versioning policy, n8n Cloud verification notes |
 
 ## Contributing

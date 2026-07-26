@@ -58,6 +58,8 @@ export function extractPlaceholders(text?: string): ParsedPlaceholder[] {
 
 const flatten = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * A window of the approved copy around one variable, so the field heading shows
  * where the value lands. The target is rendered as `⟨key⟩` while its neighbours
@@ -579,7 +581,12 @@ function renderComponentText(component: WaTemplateComponent, slot: 'header' | 'b
 		// whitespace, and a template written as `{{ 1 }}` would otherwise show up
 		// in the preview unsubstituted. The replacer is a function so that `$&`
 		// and friends inside an example value stay literal.
-		const pattern = new RegExp(`\\{\\{\\s*${placeholder.key}\\s*\\}\\}`, 'g');
+		//
+		// The key is escaped before it goes into a regex. `extractPlaceholders`
+		// only ever yields `[A-Za-z0-9_]+` so there is nothing to escape today,
+		// but building a pattern out of remote data on the strength of an
+		// invariant declared elsewhere is how injection bugs start.
+		const pattern = new RegExp(`\\{\\{\\s*${escapeRegExp(placeholder.key)}\\s*\\}\\}`, 'g');
 		rendered = rendered.replace(pattern, () => example);
 	});
 

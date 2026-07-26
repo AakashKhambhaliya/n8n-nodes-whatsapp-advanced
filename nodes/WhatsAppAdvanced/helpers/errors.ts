@@ -404,7 +404,25 @@ export function toNodeError(
 	lines.push(`Class: ${cls} · disposition: ${dispositionOf(cls)}`);
 	if (parsed.fbtraceId) lines.push(`fbtrace_id: ${parsed.fbtraceId}`);
 
-	const wrapped = new NodeApiError(node, error as JsonObject, {
+	// Rebuilt from the parsed fields rather than forwarded.
+	//
+	// A failed HTTP request carries the whole request context with it, and that
+	// includes `config.headers.Authorization: Bearer <access token>`. Handing the
+	// raw error to NodeApiError would put the token inside an object n8n stores
+	// on the execution and renders in the UI. Today NodeApiError happens to
+	// discard it, but `n8n-workflow` is a `*` peer dependency — that is a
+	// behaviour to design against, not to rely on.
+	const safeEnvelope: JsonObject = {
+		error: {
+			message: parsed.message,
+			...(parsed.type !== undefined ? { type: parsed.type } : {}),
+			...(parsed.code !== undefined ? { code: parsed.code } : {}),
+			...(parsed.details !== undefined ? { error_data: { details: parsed.details } } : {}),
+			...(parsed.fbtraceId !== undefined ? { fbtrace_id: parsed.fbtraceId } : {}),
+		},
+	};
+
+	const wrapped = new NodeApiError(node, safeEnvelope, {
 		message,
 		description: lines.join(' · '),
 		itemIndex: ctx.itemIndex,
