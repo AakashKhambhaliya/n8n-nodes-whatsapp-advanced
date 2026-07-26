@@ -1,0 +1,121 @@
+import type {
+	ILoadOptionsFunctions,
+	INodeListSearchItems,
+	INodeListSearchResult,
+	INodePropertyOptions,
+	ResourceMapperFields,
+} from 'n8n-workflow';
+
+import { buildFieldsFromTemplate } from '../helpers/templateParser';
+import { CREDENTIALS_TYPE, fetchPhoneNumbers, fetchTemplate, fetchTemplates } from '../transport';
+
+/**
+ * `name|language` matches the value format the official WhatsApp node uses, so
+ * an existing workflow can be migrated by copying the string across.
+ */
+export function splitTemplateValue(value: string): { name: string; language: string } {
+	const [name = '', language = ''] = String(value ?? '').split('|');
+	return { name: name.trim(), language: language.trim() };
+}
+
+const STATUS_ICON: Record<string, string> = {
+	APPROVED: '✅',
+	PENDING: '🕓',
+	REJECTED: '❌',
+	PAUSED: '⏸️',
+	DISABLED: '🚫',
+};
+
+async function wabaId(this: ILoadOptionsFunctions): Promise<string> {
+	const credentials = await this.getCredentials(CREDENTIALS_TYPE);
+	return credentials.businessAccountId as string;
+}
+
+export const listSearch = {
+	async searchTemplates(
+		this: ILoadOptionsFunctions,
+		filter?: string,
+	): Promise<INodeListSearchResult> {
+		const templates = await fetchTemplates.call(this, await wabaId.call(this));
+
+		// The MM API accepts MARKETING templates only. Filtering here means the
+		// user never discovers that restriction from a Meta error code.
+		const endpoint = this.getCurrentNodeParameter('messagingEndpoint') as string | undefined;
+		const marketingOnly = endpoint === 'marketing_messages';
+
+		const results: INodeListSearchItems[] = templates
+			.filter((template) => !marketingOnly || template.category === 'MARKETING')
+			.filter((template) => {
+				if (!filter) return true;
+				const needle = filter.toLowerCase();
+				return (
+					template.name.toLowerCase().includes(needle) ||
+					String(template.language).toLowerCase().includes(needle)
+				);
+			})
+			.map((template) => {
+				const icon = STATUS_ICON[String(template.status)] ?? '•';
+				const count = buildFieldsFromTemplate(template).length;
+				const variables = `${count} variable${count === 1 ? '' : 's'}`;
+
+				return {
+					name: `${icon} ${template.name} — ${template.language} · ${template.category} · ${variables}`,
+					value: `${template.name}|${template.language}`,
+				};
+			})
+			.sort((a, b) => a.name.localeCompare(b.name));
+
+		return { results };
+	},
+};
+
+export const loadOptions = {
+	async getPhoneNumbers(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+		const numbers = await fetchPhoneNumbers.call(this, await wabaId.call(this));
+
+		return numbers.map((number) => ({
+			name: `${number.verified_name ?? 'Unnamed'} ${number.display_phone_number ?? ''}`.trim(),
+			value: number.id,
+			description: number.quality_rating
+				? `Quality rating: ${number.quality_rating}`
+				: undefined,
+		}));
+	},
+};
+
+export const resourceMapping = {
+	/**
+	 * Called whenever `template.value` or `messagingEndpoint` changes — that
+	 * dependency, declared in the property's `loadOptionsDependsOn`, is the
+	 * entire mechanism behind "the fields rebuild when you switch template".
+	 *
+	 * Never throws. A half-configured node is the normal state while the user is
+	 * still filling the form, and an exception here renders a red error box
+	 * where an empty field list belongs.
+	 */
+	async getTemplateParameters(this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+		try {
+			const raw = this.getNodeParameter('template', '', { extractValue: true }) as string;
+			const { name, language } = splitTemplateValue(raw);
+			if (!name || !language) return { fields: [] };
+
+			const template = await fetchTemplate.call(this, await wabaId.call(this), name, language);
+			if (!template) {
+				return {
+					fields: [],
+					emptyFieldsNotice: `No template named “${name}” in “${language}” on this business account`,
+				};
+			}
+
+			return { fields: buildFieldsFromTemplate(template) };
+		} catch (error) {
+			// Still no throw — a red box where a field list belongs is worse than an
+			// empty one. But an empty list caused by an expired token must not read
+			// as "this template takes no variables".
+			return {
+				fields: [],
+				emptyFieldsNotice: `Could not read templates from Meta: ${(error as Error).message}`,
+			};
+		}
+	},
+};

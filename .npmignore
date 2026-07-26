@@ -1,0 +1,20 @@
+# `files` in package.json is the allowlist that decides the tarball. This file is
+# a second line of defence for anything that slips past it.
+nodes/
+credentials/
+test/
+*.ts
+!dist/**/*.d.ts
+tsconfig.json
+.tsbuildinfo
+gulpfile.js
+.eslintrc.js
+.prettierrc.js
+.editorconfig
+BUILD-PLAN.md
+DESIGN.md
+COVERAGE.md
+ERRORS.md
+PUBLISHING.md
+CLAUDE.md
+.github/
