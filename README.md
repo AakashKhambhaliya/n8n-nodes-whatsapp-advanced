@@ -68,6 +68,80 @@ webhook  → { delivered: false, status: "failed", code: 131049,
 `trackingRef` is the join key, generated automatically. `delivered` is true only for `delivered`
 and `read` — never for `sent`.
 
+### Wiring up the second half
+
+A send alone can never report delivery — Meta has no endpoint to ask a message's status, so the
+webhook is not optional. Paste this into an n8n canvas (**Ctrl+V** on an empty workflow) to get the
+outcome side:
+
+```json
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "a1b2c3d4-0000-4000-8000-000000000001",
+      "name": "WhatsApp Trigger",
+      "webhookId": "a1b2c3d4-0000-4000-8000-000000000009"
+    },
+    {
+      "parameters": {
+        "resource": "status",
+        "operation": "parseWebhook",
+        "webhookPayload": "={{ $json }}",
+        "statusOptions": {}
+      },
+      "type": "n8n-nodes-whatsapp-advanced.whatsAppAdvanced",
+      "typeVersion": 1,
+      "position": [220, 0],
+      "id": "a1b2c3d4-0000-4000-8000-000000000002",
+      "name": "Parse Delivery Status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "id": "delivered-check",
+              "leftValue": "={{ $json.delivered }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 0],
+      "id": "a1b2c3d4-0000-4000-8000-000000000003",
+      "name": "Actually Delivered?"
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [[{ "node": "Parse Delivery Status", "type": "main", "index": 0 }]]
+    },
+    "Parse Delivery Status": {
+      "main": [[{ "node": "Actually Delivered?", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {}
+}
+```
+
+Point the trigger's credential at the same WhatsApp app and subscribe to the `messages` field in
+**Meta app → WhatsApp → Configuration → Webhooks**. Statuses and inbound replies share that
+subscription; `Parse Webhook` tells them apart and outputs nothing for inbound traffic.
+
+The `true` branch of the IF node is genuine delivery. To pair an outcome with the send that caused
+it, add a **Merge** node in *Combine → Matching Fields* mode and match the send's `trackingRef`
+against the event's `trackingRef` — Meta echoes it back unchanged.
+
 ## Also included
 
 - Pre-send validation: names the missing variables instead of surfacing `(#132000)`

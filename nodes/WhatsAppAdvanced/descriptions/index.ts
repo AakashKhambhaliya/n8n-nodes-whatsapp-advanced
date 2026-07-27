@@ -226,6 +226,18 @@ export const properties: INodeProperties[] = [
 	},
 
 	// -----------------------------------------------------------------------
+	// The one thing everybody gets wrong about this API
+	// -----------------------------------------------------------------------
+	{
+		displayName:
+			'A send returns Meta’s <b>acceptance</b>, not a delivery. The output says <code>status: accepted</code> and <code>delivered: false</code> — that means queued, and Meta offers no endpoint to ask again later. Delivery outcomes and most error codes arrive only on the webhook: add the <b>WhatsApp Trigger</b> and feed it into this node’s <b>Delivery Status → Parse Webhook</b> operation, joining the two halves on <code>trackingRef</code>.',
+		name: 'acceptanceNotice',
+		type: 'notice',
+		default: '',
+		displayOptions: { show: { resource: ['message'] } },
+	},
+
+	// -----------------------------------------------------------------------
 	// Delivery status
 	// -----------------------------------------------------------------------
 	{
