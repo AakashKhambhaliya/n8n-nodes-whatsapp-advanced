@@ -42,9 +42,9 @@ export class WhatsAppAdvancedApi implements ICredentialType {
 			displayName: 'Graph API Version',
 			name: 'graphApiVersion',
 			type: 'string',
-			default: 'v23.0',
+			default: 'v25.0',
 			description:
-				'Graph API version every request is made against. This is the only place a version is configured.',
+				'Graph API version every request is made against. This is the only place a version is configured. Credentials saved with an older version keep it until you change it here.',
 		},
 	];
 
@@ -59,7 +59,7 @@ export class WhatsAppAdvancedApi implements ICredentialType {
 
 	test: ICredentialTestRequest = {
 		request: {
-			baseURL: '=https://graph.facebook.com/{{$credentials.graphApiVersion || "v23.0"}}',
+			baseURL: '=https://graph.facebook.com/{{$credentials.graphApiVersion || "v25.0"}}',
 			url: '=/{{$credentials.businessAccountId}}',
 			qs: { fields: 'id,name' },
 		},

@@ -162,6 +162,15 @@ export interface WaPhoneNumberListResponse {
 export type SendEndpoint = 'messages' | 'marketing_messages';
 export type EndpointChoice = SendEndpoint | 'auto';
 
+/**
+ * Who a send is addressed to. Meta takes a phone number in `to` and a
+ * business-scoped user ID (BSUID) in `recipient`; the two are never mixed.
+ */
+export interface SendRecipient {
+	kind: 'phone' | 'user_id';
+	value: string;
+}
+
 export interface TemplateSendOptions {
 	bizOpaqueCallbackData?: string;
 	recipientType?: string;
@@ -187,7 +196,11 @@ export interface NormalizedSend {
 	/** Meta's own `message_status`, kept verbatim. */
 	status: string;
 	messageId?: string;
-	recipient?: { input?: string; waId?: string };
+	/**
+	 * `waId` comes back only for a send addressed to a phone number, `userId`
+	 * only for one addressed to a BSUID. Absent keys are omitted, not null.
+	 */
+	recipient?: { input?: string; waId?: string; userId?: string; parentUserId?: string };
 	endpoint: string;
 	routedVia: string;
 	template?: { name?: string; language?: string; category?: string };
@@ -201,16 +214,29 @@ export type DeliveryStatus =
 	| 'sent'
 	| 'delivered'
 	| 'read'
+	| 'played'
 	| 'failed'
 	| 'deleted'
 	| string;
 
 export interface DeliveryEvent {
-	/** True only for `delivered` and `read`. `sent` means it left Meta. */
+	/**
+	 * True only for `delivered`, `read` and `played` — a voice message cannot be
+	 * played without having arrived. `sent` means it left Meta.
+	 */
 	delivered: boolean;
 	status: DeliveryStatus;
 	messageId?: string;
+	/**
+	 * The recipient's phone number. Meta omits it for a user who adopted a
+	 * username and has had no recent contact with this number — join on
+	 * `recipientUserId` or `trackingRef` rather than assuming it is present.
+	 */
 	recipient?: string;
+	/** Business-scoped user ID (BSUID). */
+	recipientUserId?: string;
+	recipientParentUserId?: string;
+	recipientUsername?: string;
 	timestamp?: string;
 	trackingRef?: string;
 	phoneNumberId?: string;
@@ -218,6 +244,8 @@ export interface DeliveryEvent {
 	conversationId?: string;
 	conversationOrigin?: string;
 	pricingCategory?: string;
+	pricingType?: string;
+	pricingModel?: string;
 	billable?: boolean;
 	code?: number;
 	title?: string;

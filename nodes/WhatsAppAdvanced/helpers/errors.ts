@@ -71,6 +71,10 @@ export const DEFERRED_CODES = new Map<number, { waitMs: number; metaStated: bool
 	[131048, { waitMs: 24 * HOUR, metaStated: false }],
 	[131064, { waitMs: 24 * HOUR, metaStated: false }],
 	[133016, { waitMs: 24 * HOUR, metaStated: false }],
+	// A Flow message is capped at 10 per hour while the Flow is throttled.
+	[132069, { waitMs: HOUR, metaStated: false }],
+	// Meta: a recently deleted number can be registered again after 5 minutes.
+	[133015, { waitMs: 5 * MINUTE, metaStated: true }],
 ]);
 
 /** The Marketing Messages API will not take this message — Cloud API might. */
@@ -96,13 +100,25 @@ const CLOUD_MARKETING_DISABLED_CODE = 131063;
 /** The recipient opted out. Suppress permanently; never retry, never replay. */
 const OPT_OUT_CODE = 131050;
 
-/** The message cannot arrive at all. Retrying changes nothing. */
-const UNDELIVERABLE_CODES = new Set([130403, 131021, 131026]);
+/**
+ * The message cannot arrive at all. Retrying changes nothing.
+ *
+ * `130472` is Meta holding the recipient out as part of an experiment group —
+ * not a refusal by the recipient, but resending fails identically and Meta
+ * says not to.
+ */
+const UNDELIVERABLE_CODES = new Set([130403, 130472, 131021, 131026]);
 
 const TEMPLATE_MISMATCH_CODES = new Set([132000, 132001, 132012]);
 
+/**
+ * Something in the request, the template or the account has to change before
+ * this can be sent. `131062` and `131065` arrived with business-scoped user IDs
+ * and max-price bidding in 2026.
+ */
 const FIX_REQUIRED_CODES = new Set([
-	131042, 131045, 131047, 132007, 132015, 132016, 132018, 133010, 134011,
+	33, 131008, 131037, 131042, 131045, 131047, 131051, 131053, 131062, 131065, 132005, 132007,
+	132015, 132016, 132018, 132068, 133010, 134011, 135000,
 ]);
 
 const AUTH_CODES = new Set([0, 3, 10, 190, 131005]);
@@ -337,46 +353,60 @@ const GUIDANCE: Record<number, string> = {
 	3: 'The access token is missing a required capability. Grant whatsapp_business_messaging and whatsapp_business_management, then re-issue it.',
 	4: 'The app hit its API call rate limit. Throughput, not this message, is the problem — resend once the window clears.',
 	10: 'The app lacks permission for this call. Check the token scopes and that the app is subscribed to the WhatsApp product.',
+	33: 'Meta could not find the ID in the request, or the token cannot see it. Check the sender phone number ID — a deleted number answers this way too.',
 	100: 'Meta rejected a parameter. On the Marketing Messages API this usually means the message is not a template — that endpoint accepts template messages only.',
 	190: 'The access token expired or was invalidated. Issue a new system user token and update the credential.',
 	368: 'The account is temporarily blocked for a policy violation. Resolve it in Business Manager; retrying will not help.',
 	80007: 'The business-account rate limit was hit. Slow the send rate and resend later.',
 	130403: 'The recipient has blocked this business, or messaging them is not permitted. Do not resend.',
 	130429: 'Meta throttled the message rate. The node backs off and retries automatically.',
+	130472: 'Meta withheld this message because the recipient is in an experiment group. Do not resend; reach them on another channel if it matters.',
 	130497: 'Messaging is restricted on this account by an integrity action. Check Business Manager for the restriction.',
 	131000: 'Meta reported an internal error while processing the message. Retry.',
 	131005: 'The token is not authorised for this phone number. Confirm the number belongs to the business account in the credential.',
+	131008: 'A required parameter is missing from the request. Check that every template variable is filled.',
 	131009: 'A parameter value is invalid for this endpoint. Check the template parameters against the approved template.',
 	131016: 'The service is temporarily unavailable. Retry shortly.',
 	131021: 'The sender and recipient are the same number, or the recipient cannot receive this message.',
 	131026: 'The number is not a valid WhatsApp user, or cannot receive messages. Verify the number and remove it from the list.',
 	131031: 'The account has been locked by an integrity review. Resolve it in Business Manager.',
+	131037: 'The sending number needs an approved display name before it can send. Request one in WhatsApp Manager.',
 	131042: 'There is a billing problem on the business account. Add or fix the payment method in Business Manager.',
 	131045: 'The phone number is not registered or its certificate is missing. Complete number registration.',
 	131047: 'More than 24 hours have passed since the user last replied. Only a template message can reopen the conversation.',
 	131048: 'Sending is restricted on this number, usually for quality reasons. Wait for the restriction to lift before resending.',
 	131049: 'Meta capped how many marketing messages this recipient receives. Meta says to wait at least 24 hours and resend — the recipient did not opt out.',
 	131050: 'The recipient opted out of marketing messages from this business. Do not resend; remove them from the marketing list.',
+	131051: 'Meta does not support this message type on this endpoint.',
+	131053: 'Meta could not fetch or process the media. Check that the header media URL is public, direct and a supported type and size.',
 	131055: 'The template category is not accepted on this endpoint. Send a MARKETING template, or switch to the Cloud API.',
 	131056: 'Too many messages sent to this recipient in a short window. Space the sends out and resend.',
 	131057: 'The account is in maintenance mode. Retry once it clears.',
+	131059: 'The template list cursor expired while paging. The node restarts the listing automatically; run it again if this persists.',
+	131062: 'A business-scoped user ID (BSUID) cannot be used for this message type. One-tap, zero-tap and copy-code authentication templates need the recipient’s phone number.',
 	131063: 'Marketing messages are disabled on the Cloud API for this account. Send this template through the Marketing Messages API instead.',
-	131064: 'The message was held by category enforcement. Confirm the template category matches its content.',
+	131064: 'Meta limited this account’s sending because its templates were repeatedly classified into a different category than declared. Confirm each template’s category matches its content.',
+	131065: 'Max-price delivery is not available in the recipient’s country. Send this template at rate-card pricing instead.',
 	132000: 'The number of parameters does not match the approved template. Refresh the template and refill the variables.',
 	132001: 'The template name or language does not exist on this business account. Check both.',
+	132005: 'The template text is too long once the variables are filled in. Shorten the variable values.',
 	132007: 'The template content violates policy. Edit and resubmit it in WhatsApp Manager.',
 	132012: 'A parameter value is malformed for its position in the template.',
 	132015: 'The template is paused for quality reasons and cannot be sent.',
 	132016: 'The template was disabled for quality reasons and cannot be sent.',
-	132018: 'The template is flagged as high risk and is blocked from sending.',
+	132018: 'Meta could not validate the template parameters against the approved template. Refresh the template and refill the variables.',
+	132068: 'The Flow attached to this template is blocked. Fix the Flow’s health issues in WhatsApp Manager.',
+	132069: 'The Flow attached to this template is throttled to 10 messages per hour. Resend later and check the Flow’s health in WhatsApp Manager.',
 	133004: 'The service is temporarily unavailable. Retry.',
 	133010:
 		'On the Marketing Messages API this means the business is not onboarded to it — the node falls back to the Cloud API automatically. On the Cloud API it means the sending number never completed registration: run POST /{PHONE_NUMBER_ID}/register with messaging_product "whatsapp" and a 6-digit PIN. Check too that the credential holds the Business Account ID and not a Phone Number ID; they are different values on the same API Setup page.',
-	133016: 'The number was recently deleted and re-registered, so sending is briefly restricted. Retry later.',
-	134011: 'The template is missing required components for this send. Re-read the template and refill the variables.',
+	133015: 'The number was deleted recently. Meta asks for 5 minutes before it is registered again.',
+	133016: 'Too many registration or deregistration attempts on this number, so Meta has paused them. Retry later.',
+	134011: 'The WhatsApp Payments terms of service have not been accepted for this account. Accept them in WhatsApp Manager.',
 	134100: 'This template is not eligible for the Marketing Messages API. Send it through the Cloud API.',
 	134101: 'The template is still syncing to the linked ad account, which takes up to 10 minutes after approval. The node falls back to the Cloud API meanwhile.',
-	134102: 'The business account is not onboarded to the Marketing Messages API. Accept the Marketing Messages Terms of Service at the business-portfolio level.',
+	134102: 'Meta reports this template as unavailable on the Marketing Messages API. The node falls back to the Cloud API; if that is switched off for marketing, check the template and the account’s Marketing Messages onboarding in WhatsApp Manager.',
+	135000: 'Meta rejected the request for a parameter problem it could not name. Compare the generated payload (Validate Only) against the approved template.',
 	2494100: 'Meta returned a transient platform error. Retry.',
 };
 

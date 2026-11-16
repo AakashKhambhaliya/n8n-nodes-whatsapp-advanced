@@ -19,6 +19,9 @@ Select any approved WhatsApp template and the node **automatically generates sim
 - **Marketing Messages API (`/marketing_messages`)**: Built for high-volume marketing campaigns with higher delivery rates and click analytics.
 - **Auto-Routing**: Automatically picks the best route for your template and falls back if needed so your messages always land.
 
+### 👤 Phone Numbers and Usernames
+Send to a phone number or to a WhatsApp business-scoped user ID (BSUID) from the same field — the node puts each in the right place for Meta, so recipients who hide their number behind a username are still reachable.
+
 ### 📊 Real-Time Delivery Tracking
 Go beyond simple "Sent" receipts. Track when your messages are **Delivered**, **Read**, or **Failed**, with human-readable error descriptions if a message bounces.
 

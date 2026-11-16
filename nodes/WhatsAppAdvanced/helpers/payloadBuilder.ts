@@ -2,7 +2,7 @@ import type { IDataObject, INode, ResourceMapperField } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 
 import { SEP, isPositionalKey } from './templateParser';
-import type { TemplateSendOptions } from './interfaces';
+import type { SendRecipient, TemplateSendOptions } from './interfaces';
 
 /**
  * FEATURE 1b. Pure module, and — the point of the whole field-ID grammar — it
@@ -18,6 +18,40 @@ type MapperValue = unknown;
 
 export function sanitizePhoneNumber(phone: string): string {
 	return String(phone ?? '').replace(/\D/g, '');
+}
+
+/**
+ * A business-scoped user ID: ISO 3166 alpha-2 country code, a period, then up
+ * to 128 alphanumerics — `US.13491208655302741918`. A parent BSUID carries
+ * `ENT` after the country code — `US.ENT.11815799212886844830`.
+ *
+ * A phone number can never match: it has no letters once formatting is
+ * stripped. That is what makes one input field safe for both identifiers.
+ */
+const BSUID_RE = /^[A-Za-z]{2}\.(?:ENT\.)?[A-Za-z0-9]{1,128}$/;
+
+export function isBsuid(value: unknown): boolean {
+	return BSUID_RE.test(String(value ?? '').trim());
+}
+
+/**
+ * Meta takes the two identifiers in different request fields — a phone number
+ * in `to`, a BSUID in `recipient` — and answers a BSUID sent in `to` with an
+ * opaque invalid-parameter error.
+ *
+ * A BSUID is passed through whole: Meta requires the country code and the
+ * period, so the digit-stripping a phone number gets would destroy it.
+ */
+export function resolveRecipient(raw: unknown): SendRecipient {
+	const trimmed = String(raw ?? '').trim();
+	if (isBsuid(trimmed)) return { kind: 'user_id', value: trimmed };
+	return { kind: 'phone', value: sanitizePhoneNumber(trimmed) };
+}
+
+/** Spread into a send body: exactly one of `to` / `recipient`, never both. */
+export function recipientFields(recipient: string | SendRecipient): IDataObject {
+	if (typeof recipient === 'string') return { to: recipient };
+	return recipient.kind === 'user_id' ? { recipient: recipient.value } : { to: recipient.value };
 }
 
 // ---------------------------------------------------------------------------
@@ -561,14 +595,14 @@ export function buildTemplateObject(args: BuildTemplateArgs): IDataObject {
 }
 
 export function buildSendBody(
-	to: string,
+	to: string | SendRecipient,
 	template: IDataObject,
 	options: TemplateSendOptions = {},
 ): IDataObject {
 	const body: IDataObject = {
 		messaging_product: 'whatsapp',
 		recipient_type: options.recipientType ?? 'individual',
-		to,
+		...recipientFields(to),
 		type: 'template',
 		template,
 	};

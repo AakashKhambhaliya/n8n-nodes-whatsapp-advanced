@@ -277,4 +277,49 @@ test('toNodeError surfaces details, guidance, endpoint, template and fbtrace_id'
 	assert.ok(error.description.includes('AbCdEfGhIjK'), error.description);
 });
 
+// ---------------------------------------------------------------------------
+// 2026 platform changes
+// ---------------------------------------------------------------------------
+
+test('codes Meta added or redefined classify to an actionable disposition', () => {
+	const cases = [
+		// [code, class, disposition]
+		[131062, 'fix_required', 'fix'], // BSUID not supported for this message type
+		[131065, 'fix_required', 'fix'], // max price unavailable in the country
+		[131008, 'fix_required', 'fix'],
+		[132068, 'fix_required', 'fix'],
+		[135000, 'fix_required', 'fix'],
+		[130472, 'undeliverable', 'suppress'], // held out by an experiment
+		[132069, 'deferred', 'retry_later'], // Flow throttled
+		[133015, 'deferred', 'retry_later'],
+	];
+
+	for (const [code, cls, disposition] of cases) {
+		assert.strictEqual(classifyWaError({ code, message: '' }), cls, String(code));
+		assert.strictEqual(dispositionOf(cls), disposition, String(code));
+		assert.ok(explainWaError({ code, message: '' }), 'no guidance for ' + code);
+	}
+});
+
+test('none of the new codes is replayed on the other endpoint or retried inline', () => {
+	for (const code of [131062, 131065, 130472, 131008, 132068, 132069, 135000]) {
+		const error = { code, message: '' };
+		assert.strictEqual(shouldFallbackToCloudApi(error, 'marketing_messages'), false, String(code));
+		assert.strictEqual(shouldFallbackToMarketingApi(error, 'messages'), false, String(code));
+		assert.strictEqual(isRetryable(error), false, String(code));
+	}
+});
+
+test('an experiment hold-out gets no retry hint', () => {
+	assert.strictEqual(retryAfterMs({ code: 130472, message: '' }), undefined);
+});
+
+test('guidance says what Meta documents for the codes it previously misdescribed', () => {
+	assert.ok(/Payments/.test(explainWaError({ code: 134011, message: '' })));
+	assert.ok(/unavailable/.test(explainWaError({ code: 134102, message: '' })));
+	assert.ok(/validate/.test(explainWaError({ code: 132018, message: '' })));
+	assert.ok(/registration or deregistration/.test(explainWaError({ code: 133016, message: '' })));
+	assert.ok(/phone number/.test(explainWaError({ code: 131062, message: '' })));
+});
+
 done();

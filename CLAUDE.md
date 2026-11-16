@@ -72,12 +72,15 @@ Do not change these without asking. Each is load-bearing.
 - **Quick-reply buttons generate a field** (optional payload), shown up front inside a carousel card
   and hidden behind *Add variable* otherwise.
 - **Zero-tap authentication emits no button component.** `auth::otp` without an index is the signal.
-- **`delivered` is false on every send.** `accepted` means queued. Only `delivered` and `read` on the
-  status webhook set it true — never `sent`.
+- **`delivered` is false on every send.** `accepted` means queued. Only `delivered`, `read` and `played`
+  on the status webhook set it true — never `sent`.
 
 ## Rules
 
-- No hardcoded Graph API version outside the credential default (`v23.0`).
+- The recipient parameter is still named `recipientPhoneNumber` although it also takes a BSUID.
+  Saved workflows store that name; do not rename it. A BSUID goes in Meta's `recipient` field, a
+  phone number in `to`, never both.
+- No hardcoded Graph API version outside the credential default (`v25.0`).
 - No Graph call from `execute()` per item except the one cached category lookup.
 - Never send `message_activity_sharing` or `message_send_ttl_seconds` to `/messages`.
 - Never let a non-MARKETING template reach `/marketing_messages` — fail inside n8n instead.

@@ -5,6 +5,54 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-11-16
+
+Catches the node up with Meta's 2026 platform changes. No parameter was renamed or removed and no
+field ID changed, so saved workflows keep working as they are.
+
+### Added
+
+- **Business-scoped user IDs (BSUID).** The recipient field now takes either a phone number or a
+  BSUID such as `US.13491208655302741918` (parent BSUIDs included). A BSUID is sent whole in Meta's
+  `recipient` field instead of `to`; a phone number is still stripped to digits. The two cannot be
+  confused — a phone number has no letters. Works for Send Template, Send Text and both fallback
+  directions.
+- Send output carries `recipient.userId` / `recipient.parentUserId` when Meta returns them.
+- Delivery Status events carry `recipientUserId`, `recipientParentUserId`, `recipientUsername`,
+  `pricingType` and `pricingModel` when present. `recipient` is filled from the webhook's
+  `contacts` block when Meta leaves the phone number off the status itself.
+- `played` — the read receipt for a voice message — now reports `delivered: true`.
+- Error codes: `131062` (BSUID not supported for this message type), `131065` (max price not
+  available in the recipient's country), `130472` (recipient held out by a Meta experiment —
+  suppressed, never retried), `131008`, `131037`, `131051`, `131053`, `132005`, `132068`,
+  `132069`, `133015`, `135000` and `33`.
+- **Max Retries** now applies to Send Text as well as Send Template.
+
+### Changed
+
+- Default Graph API version is `v25.0` (was `v23.0`). Credentials already saved keep the version
+  stored in them.
+- Template listing reads up to 6,000 templates (was 2,000) and restarts once when Meta reports a
+  stale pagination cursor (`131059`, Graph v24.0+) instead of failing. The sender dropdown now
+  pages past the first 100 phone numbers.
+- An empty recipient, or one with no digits that is not a BSUID, is refused inside n8n with a
+  message that names it, instead of being sent to Meta.
+- When a Marketing Messages send falls back to the Cloud API and the account has marketing switched
+  off there (`131063`), the original Marketing Messages error is the one reported. Previously the
+  output said to "send through the Marketing Messages API" — the endpoint that had just refused —
+  and a template that was only still syncing (`134101`) threw instead of being deferred.
+- Option descriptions note that Meta is retiring MARKETING templates on the Cloud API.
+
+### Fixed
+
+- The node icon rendered as a small dot on the canvas. The SVG declared a 1200×800 canvas with a
+  padded, non-square viewBox; it now has a tight square one. The blurred drop shadow is gone.
+- Guidance text for four codes described the wrong problem: `134011` is the WhatsApp Payments terms
+  not being accepted, `134102` is the template being unavailable on the Marketing Messages API,
+  `132018` is a template parameter validation failure, and `133016` is too many registration
+  attempts. `131064` now describes the template-classification limit Meta documents.
+  Classification and disposition of these codes are unchanged.
+
 ## [1.0.4] — 2026-07-26
 
 ### Changed

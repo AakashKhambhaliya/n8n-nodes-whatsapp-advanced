@@ -67,6 +67,12 @@ export function normalizeSendResponse(
 		recipient: {
 			input: contact.input as string | undefined,
 			waId: contact.wa_id as string | undefined,
+			// Only present on a send addressed to a BSUID. Spread in conditionally
+			// so phone-number sends keep the exact shape they always had.
+			...(contact.user_id !== undefined ? { userId: contact.user_id as string } : {}),
+			...(contact.parent_user_id !== undefined
+				? { parentUserId: contact.parent_user_id as string }
+				: {}),
 		},
 		endpoint: ctx.endpoint,
 		routedVia: ctx.routedVia,

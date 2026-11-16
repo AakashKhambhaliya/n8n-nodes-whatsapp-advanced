@@ -29,13 +29,13 @@ looks identical whichever half surfaced it.
 | Class | Codes | Disposition | Meaning |
 | --- | --- | --- | --- |
 | `retryable` | 1, 2, 130429, 131000, 131016, 131057, 133004, 2494100 | `retry_now` | Transient Meta-side failure |
-| `deferred` | 131049, 131056, 131048, 131064, 4, 80007, 133016 | `retry_later` | Meta declined *right now* |
+| `deferred` | 131049, 131056, 131048, 131064, 4, 80007, 133016, 132069, 133015 | `retry_later` | Meta declined *right now* |
 | `mm_fallback` | 100, 131009, 131055, 134100, 134101, 134102 | `reroute` → `/messages` | MM API will not take this |
 | `cloud_marketing_disabled` | 131063 | `reroute` → `/marketing_messages` | Cloud API will not take this |
 | `opt_out` | 131050 | `suppress` | The recipient refused |
-| `undeliverable` | 130403, 131021, 131026 | `suppress` | It cannot arrive at all |
+| `undeliverable` | 130403, 130472, 131021, 131026 | `suppress` | It cannot arrive at all |
 | `template_mismatch` | 132000, 132001, 132012 | `fix` | The payload does not match the template |
-| `fix_required` | 131042, 131045, 131047, 132007, 132015, 132016, 132018, 133010, 134011 | `fix` | Account or template configuration |
+| `fix_required` | 33, 131008, 131037, 131042, 131045, 131047, 131051, 131053, 131062, 131065, 132005, 132007, 132015, 132016, 132018, 132068, 133010, 134011, 135000 | `fix` | Account or template configuration |
 | `auth` | 0, 3, 10, 190, 200–299, 131005 | `fix` | Token or permission |
 | `integrity` | 368, 130497, 131031 | `fix` | Policy action on the account |
 
@@ -49,7 +49,9 @@ Meta's stated 10 minutes, so a workflow that chooses to wait instead gets the ri
 | --- | --- | --- |
 | `131049` | 24 hours | **Meta-stated** |
 | `134101` | 10 minutes | **Meta-stated** |
+| `133015` | 5 minutes | **Meta-stated** |
 | `131056`, `4`, `80007` | 15 minutes | node default |
+| `132069` | 1 hour | node default |
 | `131048`, `131064`, `133016` | 24 hours | node default |
 
 `isMetaStatedWait(error)` reports which is which. Meta documents the restriction for the node-default

@@ -288,4 +288,96 @@ test('a payload with neither statuses nor errors is not mistaken for one', () =>
 	assert.deepStrictEqual(parseStatusWebhook({}), []);
 });
 
+// ---------------------------------------------------------------------------
+// 2026 platform changes
+// ---------------------------------------------------------------------------
+
+test('played counts as delivered', () => {
+	const [event] = parseStatusWebhook(statusWebhook('played'));
+	assert.strictEqual(event.status, 'played');
+	assert.strictEqual(event.delivered, true);
+});
+
+test('a pre-BSUID payload parses to exactly the fields it always did', () => {
+	const [event] = parseStatusWebhook(statusWebhook('delivered'));
+
+	assert.strictEqual(event.recipient, '919824352916');
+	for (const key of [
+		'recipientUserId',
+		'recipientParentUserId',
+		'recipientUsername',
+		'pricingType',
+		'pricingModel',
+	]) {
+		assert.ok(!(key in event), key + ' should be absent');
+	}
+});
+
+test('BSUID identifiers and the v24 pricing fields are surfaced', () => {
+	const [event] = parseStatusWebhook(
+		statusWebhook('delivered', {
+			recipient_user_id: 'US.13491208655302741918',
+			recipient_parent_user_id: 'US.ENT.11815799212886844830',
+			conversation: undefined,
+			pricing: { billable: true, category: 'marketing', type: 'regular', pricing_model: 'PMP' },
+		}),
+	);
+
+	assert.strictEqual(event.recipient, '919824352916');
+	assert.strictEqual(event.recipientUserId, 'US.13491208655302741918');
+	assert.strictEqual(event.recipientParentUserId, 'US.ENT.11815799212886844830');
+	assert.strictEqual(event.pricingType, 'regular');
+	assert.strictEqual(event.pricingModel, 'PMP');
+	assert.strictEqual(event.conversationId, undefined);
+});
+
+test('a status with no phone number is still identified, by BSUID and the contacts block', () => {
+	const payload = statusWebhook('read', {
+		recipient_id: undefined,
+		recipient_user_id: 'US.222',
+	});
+	payload.entry[0].changes[0].value.contacts = [
+		{ user_id: 'US.111', wa_id: '15550000001', profile: { name: 'Other', username: 'other' } },
+		{ user_id: 'US.222', profile: { name: 'Priya', username: 'priya.k' } },
+	];
+
+	const [event] = parseStatusWebhook(payload);
+
+	assert.strictEqual(event.delivered, true);
+	assert.strictEqual(event.recipient, undefined);
+	assert.strictEqual(event.recipientUserId, 'US.222');
+	assert.strictEqual(event.recipientUsername, 'priya.k');
+	assert.strictEqual(event.trackingRef, 'n8n:4821:0:summer_sale');
+});
+
+test('the contacts block supplies the phone number Meta left off the status', () => {
+	const payload = statusWebhook('delivered', {
+		recipient_id: undefined,
+		recipient_user_id: 'US.222',
+	});
+	payload.entry[0].changes[0].value.contacts = [{ user_id: 'US.222', wa_id: '919824352916' }];
+
+	assert.strictEqual(parseStatusWebhook(payload)[0].recipient, '919824352916');
+});
+
+test('a send addressed to a BSUID normalises with userId and no waId', () => {
+	const result = normalizeSendResponse(
+		{
+			contacts: [{ input: 'US.222', user_id: 'US.222', parent_user_id: 'US.ENT.9' }],
+			messages: [{ id: 'wamid.B', message_status: 'accepted' }],
+		},
+		{ endpoint: 'e', routedVia: 'messages' },
+	);
+
+	assert.strictEqual(result.recipient.input, 'US.222');
+	assert.strictEqual(result.recipient.userId, 'US.222');
+	assert.strictEqual(result.recipient.parentUserId, 'US.ENT.9');
+	assert.strictEqual(result.recipient.waId, undefined);
+});
+
+test('a phone-number send keeps its original recipient shape', () => {
+	const result = normalizeSendResponse(acceptPayload, { endpoint: 'e', routedVia: 'messages' });
+	assert.deepStrictEqual(result.recipient, { input: '919824352916', waId: '919824352916' });
+});
+
 done();

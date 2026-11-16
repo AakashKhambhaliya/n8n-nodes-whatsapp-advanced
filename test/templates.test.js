@@ -814,4 +814,54 @@ test('buildSendBody attaches MM-only fields only when they are given', () => {
 	assert.strictEqual(withMm.message_send_ttl_seconds, 43200);
 });
 
+// ---------------------------------------------------------------------------
+// Business-scoped user IDs
+// ---------------------------------------------------------------------------
+
+test('a BSUID is recognised and a phone number never is', () => {
+	const { isBsuid } = require('../dist/nodes/WhatsAppAdvanced/helpers/payloadBuilder');
+
+	assert.strictEqual(isBsuid('US.13491208655302741918'), true);
+	assert.strictEqual(isBsuid('  in.AbC123  '), true);
+	assert.strictEqual(isBsuid('US.ENT.11815799212886844830'), true);
+
+	assert.strictEqual(isBsuid('+1 (415) 555-2671'), false);
+	assert.strictEqual(isBsuid('14155552671'), false);
+	assert.strictEqual(isBsuid('1.4155552671'), false);
+	assert.strictEqual(isBsuid('US.'), false);
+	assert.strictEqual(isBsuid('USA.123'), false);
+	assert.strictEqual(isBsuid('US.12/../34'), false);
+	assert.strictEqual(isBsuid('US.' + '9'.repeat(129)), false);
+	assert.strictEqual(isBsuid(undefined), false);
+});
+
+test('resolveRecipient keeps a BSUID whole and still strips a phone number', () => {
+	const { resolveRecipient } = require('../dist/nodes/WhatsAppAdvanced/helpers/payloadBuilder');
+
+	assert.deepStrictEqual(resolveRecipient(' US.13491208655302741918 '), {
+		kind: 'user_id',
+		value: 'US.13491208655302741918',
+	});
+	assert.deepStrictEqual(resolveRecipient('+1 (415) 555-2671'), {
+		kind: 'phone',
+		value: '14155552671',
+	});
+	assert.deepStrictEqual(resolveRecipient(''), { kind: 'phone', value: '' });
+});
+
+test('buildSendBody puts a BSUID in recipient and never alongside to', () => {
+	const template = { name: 't', language: { code: 'en_US' } };
+
+	const byUser = buildSendBody({ kind: 'user_id', value: 'US.123' }, template);
+	assert.strictEqual(byUser.recipient, 'US.123');
+	assert.ok(!('to' in byUser));
+
+	const byPhone = buildSendBody({ kind: 'phone', value: '14155552671' }, template);
+	assert.strictEqual(byPhone.to, '14155552671');
+	assert.ok(!('recipient' in byPhone));
+
+	// The original string signature is unchanged.
+	assert.deepStrictEqual(buildSendBody('14155552671', template), byPhone);
+});
+
 done();

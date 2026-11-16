@@ -331,4 +331,44 @@ test('surrounding whitespace is trimmed rather than rejected', () => {
 	assert.strictEqual(sendUrl('  106540352242922 ', 'messages'), '/106540352242922/messages');
 });
 
+test('the sender dropdown reads every page of phone numbers', async () => {
+	const { loadOptions } = require('../dist/nodes/WhatsAppAdvanced/methods');
+
+	const pages = [
+		{
+			data: [{ id: '1', verified_name: 'One', display_phone_number: '+1 1' }],
+			paging: { next: 'https://x', cursors: { after: 'P2' } },
+		},
+		{ data: [{ id: '2', verified_name: 'Two', display_phone_number: '+1 2' }], paging: {} },
+	];
+	const seen = [];
+
+	const context = {
+		getCredentials: async () => ({ accessToken: 'tok', businessAccountId: '999' }),
+		helpers: {
+			httpRequestWithAuthentication: async (_type, request) => {
+				seen.push(request.qs.after);
+				return pages[seen.length - 1];
+			},
+		},
+	};
+
+	const options = await loadOptions.getPhoneNumbers.call(context);
+
+	assert.deepStrictEqual(seen, [undefined, 'P2']);
+	assert.deepStrictEqual(
+		options.map((option) => option.value),
+		['1', '2'],
+	);
+});
+
+test('a malformed BSUID never reaches the request body as written', () => {
+	const { resolveRecipient } = require('../dist/nodes/WhatsAppAdvanced/helpers/payloadBuilder');
+
+	// Anything that is not exactly a BSUID falls back to digit-stripping, so
+	// only digits or a well-formed ID are ever sent.
+	assert.deepStrictEqual(resolveRecipient('US.12/../34'), { kind: 'phone', value: '1234' });
+	assert.deepStrictEqual(resolveRecipient('US.12?x=1'), { kind: 'phone', value: '121' });
+});
+
 done();

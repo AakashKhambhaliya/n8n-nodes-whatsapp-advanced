@@ -20,7 +20,7 @@ import type {
 export const CREDENTIALS_TYPE = 'whatsAppAdvancedApi';
 
 /** Used only when the credential's version field is blank. */
-export const DEFAULT_GRAPH_VERSION = 'v23.0';
+export const DEFAULT_GRAPH_VERSION = 'v25.0';
 
 /**
  * Meta omits `components` and `parameter_format` from the default projection on
@@ -40,7 +40,12 @@ export const PHONE_NUMBER_FIELDS =
 	'id,display_phone_number,verified_name,quality_rating,platform_type,code_verification_status,status';
 
 const TEMPLATE_PAGE_SIZE = 200;
-const MAX_PAGES = 10;
+/** 6,000 templates — the ceiling Meta gives a verified business account. */
+const MAX_PAGES = 30;
+const PHONE_NUMBER_PAGE_SIZE = 100;
+const MAX_PHONE_NUMBER_PAGES = 10;
+/** v24.0+: the `after` cursor handed back by an earlier page is no longer valid. */
+const STALE_CURSOR_CODE = 131059;
 const CACHE_TTL_MS = 60_000;
 const MAX_CACHE_ENTRIES = 50;
 
@@ -202,21 +207,37 @@ export async function fetchTemplates(
 	const cached = templateCache.get(cacheKey);
 	if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.templates;
 
-	const templates: WaTemplate[] = [];
+	let templates: WaTemplate[] = [];
 	let after: string | undefined;
+	let restarted = false;
 
 	for (let page = 0; page < MAX_PAGES; page++) {
 		const qs: IDataObject = { fields: TEMPLATE_FIELDS, limit: TEMPLATE_PAGE_SIZE };
 		if (nameFilter) qs.name = nameFilter;
 		if (after) qs.after = after;
 
-		const response = (await waApiRequest.call(
-			this,
-			'GET',
-			`/${account}/message_templates`,
-			undefined,
-			qs,
-		)) as WaTemplateListResponse;
+		let response: WaTemplateListResponse;
+		try {
+			response = (await waApiRequest.call(
+				this,
+				'GET',
+				`/${account}/message_templates`,
+				undefined,
+				qs,
+			)) as WaTemplateListResponse;
+		} catch (error) {
+			// Meta's stated remedy for a stale cursor is to ask again without one.
+			// Start the listing over rather than return the half already read —
+			// and only once, so a cursor that keeps going stale still surfaces.
+			if (after && !restarted && parseWaError(error).code === STALE_CURSOR_CODE) {
+				restarted = true;
+				templates = [];
+				after = undefined;
+				page = -1;
+				continue;
+			}
+			throw error;
+		}
 
 		templates.push(...(response?.data ?? []));
 
@@ -255,10 +276,29 @@ export async function fetchPhoneNumbers(
 ): Promise<WaPhoneNumber[]> {
 	const account = graphSegment(wabaId, 'Business account ID');
 
-	const response = (await waApiRequest.call(this, 'GET', `/${account}/phone_numbers`, undefined, {
-		fields: PHONE_NUMBER_FIELDS,
-		limit: 100,
-	})) as WaPhoneNumberListResponse;
+	const numbers: WaPhoneNumber[] = [];
+	let after: string | undefined;
 
-	return response?.data ?? [];
+	// Paged: a business with more than one page of numbers used to see only the
+	// first hundred in the sender dropdown, with no hint the rest existed.
+	for (let page = 0; page < MAX_PHONE_NUMBER_PAGES; page++) {
+		const qs: IDataObject = { fields: PHONE_NUMBER_FIELDS, limit: PHONE_NUMBER_PAGE_SIZE };
+		if (after) qs.after = after;
+
+		const response = (await waApiRequest.call(
+			this,
+			'GET',
+			`/${account}/phone_numbers`,
+			undefined,
+			qs,
+		)) as WaPhoneNumberListResponse;
+
+		numbers.push(...(response?.data ?? []));
+
+		if (!response?.paging?.next) break;
+		after = response.paging.cursors?.after;
+		if (!after) break;
+	}
+
+	return numbers;
 }

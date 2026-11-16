@@ -109,7 +109,7 @@ export const properties: INodeProperties[] = [
 				name: 'Cloud API (/Messages)',
 				value: 'messages',
 				description:
-					'The standard endpoint. Accepts every message type and every template category.',
+					'The standard endpoint. Accepts every message type. Meta is retiring MARKETING templates here — already rejected with 131063 on accounts that switched them off, and for every account from 13 October 2027.',
 			},
 			{
 				name: 'Marketing Messages API (/Marketing Messages)',
@@ -135,7 +135,8 @@ export const properties: INodeProperties[] = [
 			'The number this message is sent from. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 	},
 	{
-		displayName: 'Recipient Phone Number',
+		// The parameter name is unchanged on purpose: saved workflows store it.
+		displayName: 'Recipient Phone Number or User ID',
 		name: 'recipientPhoneNumber',
 		type: 'string',
 		default: '',
@@ -143,7 +144,7 @@ export const properties: INodeProperties[] = [
 		placeholder: '+14155552671',
 		displayOptions: { show: showForMessage },
 		description:
-			'Recipient in international format. Everything that is not a digit is stripped before sending.',
+			'A phone number in international format — everything that is not a digit is stripped before sending — or a business-scoped user ID (BSUID) such as US.13491208655302741918, which is sent as-is in Meta’s <code>recipient</code> field. One-tap, zero-tap and copy-code authentication templates need a phone number.',
 	},
 	{
 		displayName: 'Text',
@@ -355,7 +356,7 @@ export const properties: INodeProperties[] = [
 				default: true,
 				displayOptions: { show: { '/operation': ['sendTemplate'] } },
 				description:
-					'Whether to replay the send on the other endpoint when Meta reports the account or template as ineligible. Opt-outs and blocked recipients are never replayed.',
+					'Whether to replay the send on the other endpoint when Meta reports the account or template as ineligible. Opt-outs and blocked recipients are never replayed. A marketing template cannot fall back to the Cloud API on an account where Meta has switched marketing off there.',
 			},
 			{
 				displayName: 'Include Raw Response',
@@ -370,7 +371,6 @@ export const properties: INodeProperties[] = [
 				type: 'number',
 				default: 2,
 				typeOptions: { minValue: 0, maxValue: 5 },
-				displayOptions: { show: { '/operation': ['sendTemplate'] } },
 				description:
 					'How many times to retry transient Meta-side failures, with exponential backoff',
 			},

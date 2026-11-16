@@ -14,9 +14,15 @@ import {
 	autoMapValues,
 	buildSendBody,
 	buildTemplateObject,
-	sanitizePhoneNumber,
+	recipientFields,
+	resolveRecipient,
 } from './helpers/payloadBuilder';
-import type { EndpointChoice, SendEndpoint, TemplateSendOptions } from './helpers/interfaces';
+import type {
+	EndpointChoice,
+	SendEndpoint,
+	SendRecipient,
+	TemplateSendOptions,
+} from './helpers/interfaces';
 import { buildFieldsFromTemplate, renderPreview } from './helpers/templateParser';
 import { buildTrackingRef, normalizeSendResponse } from './helpers/response';
 import { isStatusWebhook, parseStatusWebhook } from './helpers/webhook';
@@ -230,18 +236,62 @@ async function handleTemplateResource(
 // Message resource
 // ---------------------------------------------------------------------------
 
+/**
+ * A phone number, or a business-scoped user ID for a recipient whose number
+ * Meta no longer shares. An empty value is refused here: Meta answers it with a
+ * generic invalid-parameter error that names nothing.
+ */
+function readRecipient(this: IExecuteFunctions, itemIndex: number): SendRecipient {
+	const raw = this.getNodeParameter('recipientPhoneNumber', itemIndex) as string;
+	const recipient = resolveRecipient(raw);
+
+	if (recipient.value === '') {
+		throw new NodeOperationError(this.getNode(), 'The recipient is empty', {
+			itemIndex,
+			description:
+				String(raw ?? '').trim() === ''
+					? 'Set "Recipient Phone Number or User ID" to a phone number in international format or a business-scoped user ID.'
+					: `“${raw}” contains no digits and is not a business-scoped user ID (for example US.13491208655302741918).`,
+		});
+	}
+
+	return recipient;
+}
+
+/** Clamp to the range the UI offers; an expression can hand over anything. */
+function readMaxRetries(options: IDataObject): number {
+	const value = Number(options.maxRetries ?? 2);
+	if (!Number.isFinite(value)) return 2;
+	return Math.min(5, Math.max(0, Math.floor(value)));
+}
+
+/**
+ * Run one request, replaying transient Meta-side failures (downtime,
+ * maintenance mode, throughput) with exponential backoff. Meta rejected the
+ * request outright in every one of those cases, so a replay cannot duplicate a
+ * message. Anything else is rethrown untouched for the caller to classify.
+ */
+async function withRetries<T>(maxRetries: number, request: () => Promise<T>): Promise<T> {
+	for (let tries = 0; ; tries++) {
+		try {
+			return await request();
+		} catch (error) {
+			if (tries >= maxRetries || !isRetryable(parseWaError(error))) throw error;
+			await new Promise((resolve) => setTimeout(resolve, backoffDelayMs(tries)));
+		}
+	}
+}
+
 async function sendText(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
 	const phoneNumberId = this.getNodeParameter('phoneNumberId', itemIndex) as string;
-	const to = sanitizePhoneNumber(
-		this.getNodeParameter('recipientPhoneNumber', itemIndex) as string,
-	);
+	const recipient = readRecipient.call(this, itemIndex);
 	const text = this.getNodeParameter('textBody', itemIndex) as string;
 	const options = this.getNodeParameter('options', itemIndex, {}) as IDataObject;
 
 	const body: IDataObject = {
 		messaging_product: 'whatsapp',
 		recipient_type: 'individual',
-		to,
+		...recipientFields(recipient),
 		type: 'text',
 		text: { body: text },
 	};
@@ -252,12 +302,16 @@ async function sendText(this: IExecuteFunctions, itemIndex: number): Promise<IDa
 	// Free-form text is never valid on the Marketing Messages API (code 100,
 	// "Message must be a template message"), so this always goes to Cloud API.
 	try {
-		return (await waApiRequest.call(
-			this as never,
-			'POST',
-			sendUrl(phoneNumberId, 'messages'),
-			body,
-		)) as IDataObject;
+		return await withRetries(
+			readMaxRetries(options),
+			async () =>
+				(await waApiRequest.call(
+					this as never,
+					'POST',
+					sendUrl(phoneNumberId, 'messages'),
+					body,
+				)) as IDataObject,
+		);
 	} catch (error) {
 		throw toNodeError(this.getNode(), error, {
 			itemIndex,
@@ -305,9 +359,7 @@ async function sendTemplate(
 	itemIndex: number,
 ): Promise<IDataObject> {
 	const phoneNumberId = this.getNodeParameter('phoneNumberId', itemIndex) as string;
-	const to = sanitizePhoneNumber(
-		this.getNodeParameter('recipientPhoneNumber', itemIndex) as string,
-	);
+	const to = readRecipient.call(this, itemIndex);
 	const endpointChoice = this.getNodeParameter(
 		'messagingEndpoint',
 		itemIndex,
@@ -466,17 +518,20 @@ async function sendTemplate(
 		itemIndex,
 		templateName: name,
 		fallbackAllowed: options.fallbackToCloudApi !== false,
-		maxRetries: (options.maxRetries as number) ?? 2,
+		maxRetries: readMaxRetries(options),
 		nonDeliveryHandling: (options.nonDeliveryHandling as 'output' | 'error') ?? 'output',
 	});
 }
+
+/** Marketing templates are switched off on the Cloud API for this account. */
+const CLOUD_MARKETING_DISABLED = 131063;
 
 interface RoutingArgs {
 	phoneNumberId: string;
 	endpoint: SendEndpoint;
 	body: IDataObject;
 	templateObject: IDataObject;
-	to: string;
+	to: SendRecipient;
 	sendOptions: TemplateSendOptions;
 	itemIndex: number;
 	templateName: string;
@@ -535,19 +590,10 @@ async function sendWithRouting(
 
 	let lastError: unknown;
 
-	for (let tries = 0; tries <= maxRetries; tries++) {
-		try {
-			return await attempt(args.endpoint, body);
-		} catch (error) {
-			lastError = error;
-			const parsed = parseWaError(error);
-
-			if (isRetryable(parsed) && tries < maxRetries) {
-				await new Promise((resolve) => setTimeout(resolve, backoffDelayMs(tries)));
-				continue;
-			}
-			break;
-		}
+	try {
+		return await withRetries(maxRetries, () => attempt(args.endpoint, body));
+	} catch (error) {
+		lastError = error;
 	}
 
 	let parsed = parseWaError(lastError);
@@ -587,6 +633,7 @@ async function sendWithRouting(
 		// message_activity_sharing and message_send_ttl_seconds are MM-only, so
 		// the replayed body must drop them.
 		finalEndpoint = 'messages';
+		const original = { error: lastError, parsed };
 		const response = await replay(
 			'messages',
 			buildSendBody(args.to, args.templateObject, {
@@ -596,6 +643,16 @@ async function sendWithRouting(
 			'marketing_messages',
 		);
 		if (response !== undefined) return response;
+
+		// The account has marketing switched off on the Cloud API, so the replay
+		// was never going to land. Reporting its 131063 would tell the user to
+		// "send through the Marketing Messages API" — the endpoint that has just
+		// refused. The first error is the one that says what is actually wrong.
+		if (parsed.code === CLOUD_MARKETING_DISABLED) {
+			lastError = original.error;
+			parsed = original.parsed;
+			finalEndpoint = 'marketing_messages';
+		}
 	} else if (args.fallbackAllowed && shouldFallbackToMarketingApi(parsed, args.endpoint)) {
 		finalEndpoint = 'marketing_messages';
 		const response = await replay(
@@ -640,7 +697,7 @@ async function sendWithRouting(
 			_fbtraceId: parsed.fbtraceId,
 			_attemptedEndpoint: `POST /${phoneNumberId}/${finalEndpoint}`,
 			_templateName: templateName,
-			_recipient: args.to,
+			_recipient: args.to.value,
 			_trackingRef: args.trackingRef,
 			// retry_later: Meta throttled a message the recipient still wants.
 			// suppress: do not send to this recipient again without a data change.

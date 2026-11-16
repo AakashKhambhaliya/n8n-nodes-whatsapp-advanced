@@ -700,4 +700,179 @@ test('the category lookup is cached across items in one run', async () => {
 	assert.strictEqual(sendCalls(calls).length, 3);
 });
 
+// ---------------------------------------------------------------------------
+// 2026 platform changes
+// ---------------------------------------------------------------------------
+
+test('a BSUID recipient is sent whole in recipient, on both operations', async () => {
+	const BSUID = 'US.13491208655302741918';
+
+	const template = await run({
+		templates: [F.namedWithCouponAndOffer],
+		params: { ...marketingParams(), recipientPhoneNumber: ' ' + BSUID + ' ' },
+		send: () => ({
+			contacts: [{ input: BSUID, user_id: BSUID }],
+			messages: [{ id: 'wamid.B', message_status: 'accepted' }],
+		}),
+	});
+
+	const [send] = sendCalls(template.calls);
+	assert.strictEqual(send.body.recipient, BSUID);
+	assert.ok(!('to' in send.body));
+	assert.strictEqual(template.items[0].recipient.userId, BSUID);
+
+	const text = await run({
+		params: { operation: 'sendText', textBody: 'Hi', recipientPhoneNumber: BSUID },
+		send: () => ({ messages: [{ id: 'wamid.T' }] }),
+	});
+
+	const [textSend] = sendCalls(text.calls);
+	assert.strictEqual(textSend.body.recipient, BSUID);
+	assert.ok(!('to' in textSend.body));
+});
+
+test('a fallback replay addresses the same BSUID', async () => {
+	const BSUID = 'US.13491208655302741918';
+
+	const { items, calls } = await run({
+		templates: [F.namedWithCouponAndOffer],
+		params: { ...marketingParams(), recipientPhoneNumber: BSUID },
+		send: (endpoint) => {
+			if (endpoint === 'marketing_messages') throw graphFailure(134100, 'Not eligible');
+			return ACCEPTED;
+		},
+	});
+
+	const sends = sendCalls(calls);
+	assert.strictEqual(sends.length, 2);
+	assert.strictEqual(sends[1].body.recipient, BSUID);
+	assert.ok(!('to' in sends[1].body));
+	assert.strictEqual(items[0]._fallbackFrom, 'marketing_messages');
+});
+
+test('an empty recipient is refused before anything is sent', async () => {
+	for (const value of ['', '   ', 'not a number']) {
+		let sent = 0;
+		await assert.rejects(
+			run({
+				templates: [F.namedWithCouponAndOffer],
+				params: { ...marketingParams(), recipientPhoneNumber: value },
+				send: () => {
+					sent++;
+					return ACCEPTED;
+				},
+			}),
+			/recipient is empty/i,
+			JSON.stringify(value),
+		);
+		assert.strictEqual(sent, 0);
+	}
+});
+
+test('when the Cloud API has marketing switched off, the Marketing Messages error is the one reported', async () => {
+	// 134101 → fall back → 131063. Reporting 131063 would send the user back to
+	// the endpoint that just refused; the template is in fact only still syncing.
+	const { items, calls } = await run({
+		templates: [F.namedWithCouponAndOffer],
+		params: marketingParams(),
+		send: (endpoint) => {
+			if (endpoint === 'marketing_messages') throw graphFailure(134101, 'Template is syncing');
+			throw graphFailure(131063, 'Marketing templates are disabled for Cloud API');
+		},
+	});
+
+	assert.strictEqual(sendCalls(calls).length, 2);
+	assert.strictEqual(items[0]._code, 134101);
+	assert.strictEqual(items[0]._disposition, 'retry_later');
+	assert.ok(items[0]._attemptedEndpoint.endsWith('/marketing_messages'), items[0]._attemptedEndpoint);
+});
+
+test('sendText retries a transient failure and then succeeds', async () => {
+	let attempts = 0;
+
+	const { items, calls } = await run({
+		params: { operation: 'sendText', textBody: 'Hi', options: { maxRetries: 1 } },
+		send: () => {
+			attempts++;
+			if (attempts === 1) throw graphFailure(131016, 'Service unavailable');
+			return { messages: [{ id: 'wamid.T' }] };
+		},
+	});
+
+	assert.strictEqual(sendCalls(calls).length, 2);
+	assert.strictEqual(items[0].messages[0].id, 'wamid.T');
+});
+
+test('sendText does not retry an error that is not transient', async () => {
+	let attempts = 0;
+
+	await assert.rejects(
+		run({
+			params: { operation: 'sendText', textBody: 'Hi' },
+			send: () => {
+				attempts++;
+				throw graphFailure(131047, 'Re-engagement message');
+			},
+		}),
+		/131047/,
+	);
+	assert.strictEqual(attempts, 1);
+});
+
+test('a stale template cursor restarts the listing once instead of failing', async () => {
+	const { fetchTemplates } = require('../dist/nodes/WhatsAppAdvanced/transport');
+	invalidateTemplateCache();
+
+	const requests = [];
+	let staleServed = false;
+
+	const context = {
+		getCredentials: async () => ({ accessToken: 'tok', businessAccountId: WABA_ID }),
+		helpers: {
+			httpRequestWithAuthentication: async (_type, request) => {
+				requests.push(request.qs.after);
+
+				if (request.qs.after === undefined) {
+					return {
+						data: [{ name: 'a', language: 'en_US' }],
+						paging: { next: 'https://x', cursors: { after: 'CURSOR' } },
+					};
+				}
+				if (!staleServed) {
+					staleServed = true;
+					throw graphFailure(131059, 'Invalid cursor');
+				}
+				return { data: [{ name: 'b', language: 'en_US' }], paging: {} };
+			},
+		},
+	};
+
+	const templates = await fetchTemplates.call(context, WABA_ID);
+
+	assert.deepStrictEqual(requests, [undefined, 'CURSOR', undefined, 'CURSOR']);
+	assert.deepStrictEqual(
+		templates.map((template) => template.name),
+		['a', 'b'],
+	);
+});
+
+test('requests default to Graph v25.0 when the credential leaves the version blank', async () => {
+	const { fetchTemplates } = require('../dist/nodes/WhatsAppAdvanced/transport');
+	invalidateTemplateCache();
+
+	let url;
+	const context = {
+		getCredentials: async () => ({ accessToken: 'tok', businessAccountId: WABA_ID }),
+		helpers: {
+			httpRequestWithAuthentication: async (_type, request) => {
+				url = request.url;
+				return { data: [], paging: {} };
+			},
+		},
+	};
+
+	await fetchTemplates.call(context, WABA_ID);
+	assert.ok(url.startsWith('https://graph.facebook.com/v25.0/'), url);
+});
+
 done();

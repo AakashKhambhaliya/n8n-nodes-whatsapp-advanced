@@ -18,8 +18,12 @@ import type { DeliveryEvent } from './interfaces';
  * webhook parsing in the same node as sending.
  */
 
-/** Only these two mean the message reached the handset. `sent` means it left Meta. */
-const DELIVERED_STATUSES = new Set(['delivered', 'read']);
+/**
+ * Only these mean the message reached the handset. `sent` means it left Meta.
+ * `played` is the read receipt for a voice message — it cannot be played
+ * without having been delivered.
+ */
+const DELIVERED_STATUSES = new Set(['delivered', 'read', 'played']);
 
 function asRecord(value: unknown): IDataObject | undefined {
 	return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -97,6 +101,52 @@ function applyError(event: DeliveryEvent, rawError: IDataObject): void {
 	}
 }
 
+const asString = (value: unknown): string | undefined =>
+	typeof value === 'string' && value !== '' ? value : undefined;
+
+/**
+ * Since business-scoped user IDs arrived, a status webhook carries a `contacts`
+ * array beside `statuses` for everything but `failed`. It is the only place the
+ * recipient's username appears, and — for a message addressed to a BSUID — the
+ * only place their phone number does, when Meta is able to share it.
+ *
+ * Matched on the BSUID first and the phone number second; a batch can carry
+ * several recipients, so "the first contact" is not a safe answer.
+ */
+function findContact(
+	contacts: IDataObject[],
+	userId: string | undefined,
+	phone: string | undefined,
+): IDataObject | undefined {
+	if (userId !== undefined) {
+		const byUser = contacts.find((contact) => contact?.user_id === userId);
+		if (byUser) return byUser;
+	}
+	if (phone !== undefined) return contacts.find((contact) => contact?.wa_id === phone);
+	return undefined;
+}
+
+/** Added only when Meta sent them, so pre-BSUID payloads parse to the same event as before. */
+function applyIdentity(event: DeliveryEvent, status: IDataObject, contacts: IDataObject[]): void {
+	const userId = asString(status?.recipient_user_id);
+	const contact = findContact(contacts, userId, event.recipient);
+
+	// Meta omits `recipient_id` on a BSUID send when it cannot share the number,
+	// but may still name it on the matching contact.
+	if (event.recipient === undefined) event.recipient = asString(contact?.wa_id);
+
+	const resolvedUserId = userId ?? asString(contact?.user_id);
+	if (resolvedUserId !== undefined) event.recipientUserId = resolvedUserId;
+
+	const parentUserId =
+		asString(status?.recipient_parent_user_id) ?? asString(contact?.parent_user_id);
+	if (parentUserId !== undefined) event.recipientParentUserId = parentUserId;
+
+	const username =
+		asString(asRecord(contact?.profile)?.username) ?? asString(contact?.username);
+	if (username !== undefined) event.recipientUsername = username;
+}
+
 export function parseStatusWebhook(
 	payload: IDataObject,
 	includeRaw = false,
@@ -105,6 +155,7 @@ export function parseStatusWebhook(
 
 	for (const value of collectValues(payload)) {
 		const metadata = asRecord(value?.metadata) ?? {};
+		const contacts = asArray(value?.contacts);
 
 		for (const status of asArray(value?.statuses)) {
 			const statusName = String(status?.status ?? 'unknown');
@@ -125,6 +176,15 @@ export function parseStatusWebhook(
 				pricingCategory: pricing?.category as string | undefined,
 				billable: pricing?.billable as boolean | undefined,
 			};
+
+			// `conversation` is gone from v24.0 webhooks outside a free-entry-point
+			// window; `pricing.type` and `pricing_model` are what Meta bills on now.
+			const pricingType = asString(pricing?.type);
+			if (pricingType !== undefined) event.pricingType = pricingType;
+			const pricingModel = asString(pricing?.pricing_model);
+			if (pricingModel !== undefined) event.pricingModel = pricingModel;
+
+			applyIdentity(event, status, contacts);
 
 			const errors = asArray(status?.errors);
 			if (errors.length > 0) applyError(event, errors[0]);
